@@ -65,7 +65,9 @@ async function indexDirectory(dirPath: string, isJsonOutput: boolean): Promise<v
         file_path: chunk.filePath,
         chunk_text: chunk.content,
         inline_document: chunk.boundary.docs || '', // Assuming BoundaryChunk has a 'doc' property for documentation
-        embedding: embedding
+        embedding: embedding,
+        parent_info: chunk.boundary.parent?.join(".") || '',
+        entity: chunk.boundary.name || ''
       });
     }
 
@@ -105,6 +107,8 @@ async function query(queryText: string, k: number, isJsonOutput: boolean): Promi
       file: result.file_path,
       fileName: result.file_name,
       contentSnippet: isJsonOutput ? result.chunk_text : result.chunk_text.substring(0, 100) + "...",
+      entity: result.entity,
+      parent_info: result.parent_info,
       score: result.distance.toFixed(4)
     }));
 
@@ -116,6 +120,8 @@ async function query(queryText: string, k: number, isJsonOutput: boolean): Promi
         console.log(`- File: ${res.file}`);
         console.log(`  Content Snippet: ${res.contentSnippet}`);
         console.log(`  Score: ${res.score}`);
+        console.log(`  Entity: ${res.entity}`);
+        console.log(`  Parent: ${res.parent_info}`);
       });
     }
   } else {

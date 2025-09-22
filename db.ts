@@ -8,6 +8,8 @@ export type CodeChunkRow = {
   file_path: string;
   chunk_text: string;
   inline_document?: string | null;
+  entity?: string | null;
+  parent_info?: string | null;
   // embedding as Float32Array (length EMBEDDING_DIM)
   embedding: Float32Array;
 };
@@ -28,6 +30,8 @@ CREATE TABLE IF NOT EXISTS code_chunks (
   file_path TEXT NOT NULL,
   chunk_text TEXT NOT NULL,
   inline_document TEXT,
+  entity TEXT,          -- New column for entity
+  parent_info TEXT,     -- New column for parent_info
   embedding BLOB NOT NULL
 );
 `);
@@ -79,10 +83,10 @@ export function insertChunk(chunk: CodeChunkRow): number {
   assertEmbeddingDim(chunk.embedding);
   const buf = float32ToBuffer(chunk.embedding);
   const stmt = db.prepare(
-    `INSERT INTO code_chunks (file_name, file_path, chunk_text, inline_document, embedding)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO code_chunks (file_name, file_path, chunk_text, inline_document, entity, parent_info, embedding)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
-  const info = stmt.run(chunk.file_name, chunk.file_path, chunk.chunk_text, chunk.inline_document ?? null, buf);
+  const info = stmt.run(chunk.file_name, chunk.file_path, chunk.chunk_text, chunk.inline_document ?? null, chunk.entity ?? null, chunk.parent_info ?? null, buf);
   return Number(info.lastInsertRowid);
 }
 
@@ -90,13 +94,13 @@ export function insertChunk(chunk: CodeChunkRow): number {
 export function bulkInsertChunks(chunks: CodeChunkRow[], batchSize = 500) {
   // chunked batch insert to avoid giant single statement / memory spikes
   const insertOne = db.prepare(
-    `INSERT INTO code_chunks (file_name, file_path, chunk_text, inline_document, embedding)
-     VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO code_chunks (file_name, file_path, chunk_text, inline_document, entity, parent_info, embedding)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
   const insertMany = db.transaction((batch: CodeChunkRow[]) => {
     for (const c of batch) {
       assertEmbeddingDim(c.embedding);
-      insertOne.run(c.file_name, c.file_path, c.chunk_text, c.inline_document ?? null, float32ToBuffer(c.embedding));
+      insertOne.run(c.file_name, c.file_path, c.chunk_text, c.inline_document ?? null, c.entity ?? null, c.parent_info ?? null, float32ToBuffer(c.embedding));
     }
   });
 
@@ -113,6 +117,8 @@ export type SearchResult = {
   file_path: string;
   chunk_text: string;
   inline_document: string | null;
+  entity: string | null;          // Added entity field
+  parent_info: string | null;     // Added parent_info field
   distance: number;
 };
 
@@ -130,6 +136,8 @@ export function searchSimilar(queryEmbedding: Float32Array, k = 5): SearchResult
       c.file_path,
       c.chunk_text,
       c.inline_document,
+      c.entity,             -- Added entity
+      c.parent_info,        -- Added parent_info
       v.distance as distance
     FROM vec_index v
     JOIN q ON 1=1
@@ -148,6 +156,8 @@ export function searchSimilar(queryEmbedding: Float32Array, k = 5): SearchResult
     file_path: r.file_path,
     chunk_text: r.chunk_text,
     inline_document: r.inline_document,
+    entity: r.entity,             // Added entity
+    parent_info: r.parent_info,   // Added parent_info
     distance: Number(r.distance)
   }));
 }
