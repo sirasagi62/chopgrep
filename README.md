@@ -9,6 +9,7 @@
 To install the project dependencies, run the following command in your terminal:
 
 ```bash
+bun install
 bun link
 ```
 
