@@ -5,7 +5,7 @@
     "build": "tsc"
   },
   "bin": {
-    "chopgrep": "./main.ts"
+    "chopgrep": "./dist/main.js"
   },
   "type": "module",
   "devDependencies": {

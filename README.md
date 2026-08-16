@@ -10,6 +10,7 @@ To install the project dependencies, run the following command in your terminal:
 
 ```bash
 bun install
+bun run build
 bun link
 ```
 
@@ -19,11 +20,6 @@ bun link
 
 To index code chunks from a directory, use the `index` command:
 
-```bash
-bun run chopper-grep.ts index <directory_path>
-```
-
-If you've already install `chopgrep`,
 ```bash
 chopgrep index <directory_path>
 ```
@@ -51,13 +47,13 @@ chopgrep query <query_text> [k]
 
 **Example:**
 ```bash
-chopgrep chopper-grep.ts query "function to calculate factorial" 3 -j
+chopgrep query "function to calculate factorial" 3 -j
 ```
 
 ## Project Structure
 
-- `chopper-grep.ts`: The main entry point for the CLI tool.
-- `db.ts`: Handles all database operations for storing and retrieving code chunks and their embeddings.
+- `src/main.ts`: The CLI source code.
+- `dist/main.js`: The built CLI entry point.
 - `package.json`: Project metadata and dependencies.
 - `tsconfig.json`: TypeScript compiler options.
 - `.gitignore`: Specifies intentionally untracked files that Git should ignore.
