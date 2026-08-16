@@ -1,29 +1,22 @@
+// tsconfig.json
 {
   "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
+    // 1. For Top-Level Await (TS1378)
+    "target": "es2022",
+    "module": "node20",
 
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
+    // 2. For Import Errors (TS1259)
+    "esModuleInterop": true,
 
-    // Best practices
+    // 3. For Type Resolution (TS2304)
+    "moduleResolution": "nodenext", // Or "nodenext"/"node16" if using node >= 16
+
+    // Essential options for a Node project
     "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  }
+    "skipLibCheck": true, // Highly recommended to ignore issues in node_modules type files
+    "outDir": "./dist",
+    "rootDir": "./src",
+  },
+  "include": ["src/**/*.ts"], // Adjust as necessary
+  "exclude": ["node_modules"]
 }

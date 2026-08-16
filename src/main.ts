@@ -1,65 +1,54 @@
 #!/usr/bin/env bun
+
+
 import {
   createParserFactory,
   readDirectoryAndChunk,
   type Options,
 } from "code-chopper";
 import * as path from "path";
-import { env, pipeline } from "@huggingface/transformers";
+import { env } from "@huggingface/transformers";
 import {
-  bulkInsertChunks,
-  searchSimilar,
-  close,
-  EMBEDDING_DIM,
-  type CodeChunkRow,
-} from "./db"; // Import from db.ts
+  HFLocalEmbeddingModel,
+  VeqliteDB,
+  type BaseMetadata
+} from "veqlite"
 import yargs from "yargs"; // Import yargs
 import { hideBin } from "yargs/helpers"; // Helper to get arguments excluding node and script path
 
 // Set environment variables for transformers.js
 env.allowRemoteModels = true; // Allow fetching models from Hugging Face Hub if not found locally
 
-// Initialize the embedding pipeline
-const embeddingPipeline = await pipeline(
-  "feature-extraction",
-  "sirasagi62/granite-embedding-107m-multilingual-ONNX",
-  { dtype: "q8" }
-);
+type ChunkMeta = {
+  fileName: string
+  parentInfo: string
+  inlineDocument: string
+  entity: string
+} & BaseMetadata
 
-// Function to calculate embeddings using the transformers pipeline
-const calculateEmbedding = async (text: string): Promise<Float32Array> => {
-  try {
-    const output = await embeddingPipeline(text, {
-      pooling: "mean",
-      normalize: true,
-    });
-    const embeddingArray = output.data;
-    if (embeddingArray) {
-      // Ensure the output is a Float32Array and matches the expected dimension
-      if (embeddingArray.length !== EMBEDDING_DIM) {
-        console.warn(
-          `Embedding dimension mismatch: expected ${EMBEDDING_DIM}, got ${embeddingArray.length}. Truncating or padding.`
-        );
-        // Basic handling: truncate or pad if necessary. A more robust solution might be needed.
-        const truncatedOrPadded = new Float32Array(EMBEDDING_DIM);
-        const copyLength = Math.min(embeddingArray.length, EMBEDDING_DIM);
-        truncatedOrPadded.set(Float32Array.from(embeddingArray).slice(0, copyLength));
-        return truncatedOrPadded;
-      }
-      return Float32Array.from(embeddingArray);
-    }
-    console.warn("Unexpected output format from embedding pipeline:", output);
-    return new Float32Array(EMBEDDING_DIM); // Return empty embedding of correct dimension
-  } catch (error) {
-    console.error("Error calculating embedding:", error);
-    return new Float32Array(EMBEDDING_DIM); // Return empty embedding on error
-  }
-};
+async function initDB() {
+
+  // Initialize the embedding pipeline
+  const embeddingModel = await HFLocalEmbeddingModel.init(
+    "sirasagi62/granite-embedding-107m-multilingual-ONNX",
+    384,
+    "q8"
+  );
+  const db = new VeqliteDB<ChunkMeta>(embeddingModel, {
+    // Use in-memory database
+    embeddingDim: 384,
+    dbPath: ":memory:"
+  });
+  return db;
+}
+
 
 async function indexDirectory(
   dirPath: string,
   isJsonOutput: boolean
 ): Promise<void> {
+
+  const db = await initDB()
   const factory = createParserFactory();
   const options: Options = {
     filter: (_, node) => {
@@ -71,28 +60,23 @@ async function indexDirectory(
     excludeDirs: [/node_modules/, /\.git/],
   };
 
-  const chunksToInsert: CodeChunkRow[] = [];
   let indexedCount = 0;
 
   try {
     const chunks = await readDirectoryAndChunk(factory, options, dirPath);
 
-    for (const chunk of chunks) {
-      const embedding = await calculateEmbedding(chunk.content);
-      chunksToInsert.push({
-        file_name: path.basename(chunk.filePath),
-        file_path: chunk.filePath,
-        chunk_text: chunk.content,
-        inline_document: chunk.boundary.docs || "", // Assuming BoundaryChunk has a 'doc' property for documentation
-        embedding: embedding,
-        parent_info: chunk.boundary.parent?.join(".") || "",
-        entity: chunk.boundary.name || "",
-      });
-    }
-
-    if (chunksToInsert.length > 0) {
-      bulkInsertChunks(chunksToInsert); // Use bulkInsertChunks for efficiency
-      indexedCount = chunksToInsert.length;
+    if (chunks.length > 0) {
+      db.bulkInsertChunks(chunks.map(c => {
+        return {
+          content: c.content,
+          filepath: c.filePath,
+          fileName: path.basename(c.filePath),
+          inlineDocument: c.boundary.docs ?? "",
+          parentInfo: c.boundary.parent?.join(".") ?? "",
+          entity: c.boundary.name ?? "",
+        }
+      })); // Use bulkInsertChunks for efficiency
+      indexedCount = chunks.length;
       if (isJsonOutput) {
         console.log(
           JSON.stringify({
@@ -140,19 +124,19 @@ async function query(
   k: number,
   isJsonOutput: boolean
 ): Promise<void> {
-  const queryEmbedding = await calculateEmbedding(queryText);
-  const results = searchSimilar(queryEmbedding, k); // Use searchSimilar from db.ts
 
+  const db = await initDB()
+  const results = await db.searchSimilar(queryText, k)
   if (results.length > 0) {
     const output = results.map((result, index) => ({
       rank: index + 1,
-      file: result.file_path,
-      fileName: result.file_name,
+      file: result.filepath,
+      fileName: result.fileName,
       contentSnippet: isJsonOutput
-        ? result.chunk_text
-        : result.chunk_text.substring(0, 100) + "...",
+        ? result.content
+        : result.content.substring(0, 100) + "...",
       entity: result.entity,
-      parent_info: result.parent_info,
+      parent_info: result.parentInfo,
       score: result.distance.toFixed(4),
     }));
 
@@ -191,8 +175,8 @@ async function query(
   }
 }
 
-async function main() {
-  await yargs(hideBin(process.argv))
+function main() {
+  const msg = yargs(hideBin(process.argv))
     .command(
       "index [directory]",
       "Index code chunks from a directory",
@@ -204,7 +188,7 @@ async function main() {
       },
       async (args) => {
         await indexDirectory(args.directory as string, args.json as boolean);
-        close(); // Close the database connection after command execution
+        //db.close(); // Close the database connection after command execution
       }
     )
     .command(
@@ -226,7 +210,7 @@ async function main() {
           args.k as number,
           args.json as boolean
         );
-        close(); // Close the database connection after command execution
+        //db.close(); // Close the database connection after command execution
       }
     )
     .option("json", {
@@ -241,9 +225,11 @@ async function main() {
     .strict() // Enforce strict argument parsing
     .parse();
 }
-
-main().catch((error) => {
-  console.error("An unexpected error occurred:", error);
-  close(); // Ensure DB is closed even on error
+try {
+  main()
+}
+catch {
+  console.error("An unexpected error occurred:");
+  //db.close(); // Ensure DB is closed even on error
   process.exit(1);
-});
+};
